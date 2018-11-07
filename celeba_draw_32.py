@@ -175,7 +175,7 @@ def joint_kl_divergence(mu_key, logvar_key, beta=4):
         klds = -0.5 * (logvar.size(1) + logvar.sum(dim=1) - mu.pow(2).sum(dim=1) - logvar.exp().sum(dim=1))
         total_kld = klds.sum(1).mean(0, True)
 
-        return beta * total_kld.item()
+        return beta * total_kld[0]
     return loss
 
 
