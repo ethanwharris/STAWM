@@ -102,3 +102,10 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# Other
+data/
+logs/
+cifarss_base/
+cifar*/
+celeba*/

@@ -10,6 +10,7 @@ from memory import Memory
 
 import torchbearer
 from torchbearer import Trial, callbacks
+from torchbearer.cv_utils import DatasetValidationSplitter
 
 import visualise
 
@@ -19,6 +20,26 @@ MU = torchbearer.state_key('mu')
 LOGVAR = torchbearer.state_key('logvar')
 STAGES = torchbearer.state_key('stages')
 MASKED_TARGET = torchbearer.state_key('masked')
+
+
+class Block(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0):
+        super(Block, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding)
+        torch.nn.init.kaiming_uniform_(self.conv.weight)
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+class InverseBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0):
+        super(InverseBlock, self).__init__()
+        self.conv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding)
+        torch.nn.init.kaiming_uniform_(self.conv.weight)
+
+    def forward(self, x):
+        return self.conv(x)
 
 
 class View(nn.Module):
@@ -99,9 +120,12 @@ class CelebDraw(nn.Module):
             self.square = visualise.red_square(glimpse_size, width=1).unsqueeze(0).cuda()
 
     def sample(self, mu, logvar):
-        std = logvar.div(2).exp_()
-        eps = std.data.new(std.size()).normal_()
-        return mu + std * eps
+        if self.training:
+            std = logvar.div(2).exp_()
+            eps = std.data.new(std.size()).normal_()
+            return mu + std * eps
+        else:
+            return mu
 
     def forward(self, x, state=None):
         image = x
@@ -166,7 +190,7 @@ class CelebDraw(nn.Module):
         return canvas
 
 
-def joint_kl_divergence(mu_key, logvar_key, beta=4):
+def joint_kl_divergence(mu_key, logvar_key, beta=2):
     @callbacks.add_to_loss
     def loss(state):
         mu = state[mu_key]
@@ -175,19 +199,26 @@ def joint_kl_divergence(mu_key, logvar_key, beta=4):
         klds = -0.5 * (logvar.size(1) + logvar.sum(dim=1) - mu.pow(2).sum(dim=1) - logvar.exp().sum(dim=1))
         total_kld = klds.sum(1).mean(0, True)
 
-        return beta * total_kld.item()
+        return beta * torch.abs(total_kld[0])
     return loss
 
 
 def draw(count, glimpse_size, memory_size, file, device='cuda'):
-    transform_test = transforms.Compose([
+    base_dir = os.path.join('celeba_' + str(memory_size), str(glimpse_size))
+
+    transform = transforms.Compose([
         transforms.ToTensor()
     ])
 
-    testset = torchvision.datasets.ImageFolder(root='./cropped_celeba/', transform=transform_test)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=128, shuffle=True, num_workers=10)
+    dataset = torchvision.datasets.ImageFolder(root='./cropped_celeba/', transform=transform)
+    splitter = DatasetValidationSplitter(len(dataset), 0.05)
 
-    base_dir = os.path.join('celeba_' + str(memory_size), str(glimpse_size))
+    # load the ids
+    splitter.train_ids, splitter.valid_ids = torch.load(os.path.join(base_dir, 'split.dat'))
+
+    testset = splitter.get_val_dataset(dataset)
+
+    testloader = torch.utils.data.DataLoader(testset, batch_size=128, shuffle=True, num_workers=10)
 
     model = CelebDraw(count, glimpse_size, memory_size, output_stages=True)
 
@@ -212,14 +243,22 @@ def draw(count, glimpse_size, memory_size, file, device='cuda'):
 
 
 def run(count, glimpse_size, memory_size, iteration, device='cuda'):
+    base_dir = os.path.join('celeba_' + str(memory_size), str(glimpse_size))
+    if not os.path.exists(base_dir):
+        os.makedirs(base_dir)
+
     transform_train = transforms.Compose([
         transforms.ToTensor()
     ])
 
-    trainset = torchvision.datasets.ImageFolder(root='./cropped_celeba/', transform=transform_train)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=10)
+    dataset = torchvision.datasets.ImageFolder(root='./cropped_celeba/', transform=transform_train)
+    splitter = DatasetValidationSplitter(len(dataset), 0.05)
+    trainset = splitter.get_train_dataset(dataset)
 
-    base_dir = os.path.join('celeba_' + str(memory_size), str(glimpse_size))
+    # Save the ids
+    torch.save((splitter.train_ids, splitter.valid_ids), os.path.join(base_dir, 'split.dat'))
+
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=10)
 
     model = CelebDraw(count, glimpse_size, memory_size)
 
@@ -234,17 +273,17 @@ def run(count, glimpse_size, memory_size, iteration, device='cuda'):
                                 key=torchbearer.Y_TRUE)
     call_b.on_step_training = call_b.on_step_validation  # Hack to make this log training samples
 
-    trial = Trial(model, optimizer, nn.MSELoss(reduction='sum'), ['loss'], pass_state=True, callbacks=[
-        joint_kl_divergence(MU, LOGVAR, beta=10),
+    trial = Trial(model, optimizer, nn.MSELoss(reduction='sum'), ['acc', 'loss'], pass_state=True, callbacks=[
+        joint_kl_divergence(MU, LOGVAR),
         callbacks.MostRecent(os.path.join(base_dir, 'iter_' + str(iteration) + '.{epoch:02d}.pt')),
         callbacks.GradientClipping(5),
         call_a,
         call_b
     ]).with_generators(train_generator=trainloader).to(device)
 
-    trial.run(250)
+    trial.run(100)
 
 
 if __name__ == "__main__":
     run(8, 32, 256, 0, device='cuda')
-    draw(8, 32, 256, 'iter_0.249.pt')
+    draw(8, 32, 256, 'iter_0.99.pt')

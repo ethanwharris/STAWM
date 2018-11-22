@@ -21,79 +21,32 @@ STAGES = torchbearer.state_key('stages')
 
 
 class Block(nn.Module):
-    def __init__(self, in_planes, out_planes, stride=1, padding=0):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0):
         super(Block, self).__init__()
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=3, padding=padding, stride=stride, bias=False)
-        self.bn = nn.BatchNorm2d(out_planes)
-        torch.nn.init.xavier_uniform_(self.conv.weight)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding)
+        torch.nn.init.kaiming_uniform_(self.conv.weight)
 
     def forward(self, x):
-        out = F.relu(self.bn(self.conv(x)))
-        return out
+        return self.conv(x)
 
 
 class InverseBlock(nn.Module):
-    def __init__(self, in_planes, out_planes, stride=1, last=False, output_padding=0):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0):
         super(InverseBlock, self).__init__()
-        self.last = last
-        self.conv = nn.ConvTranspose2d(in_planes, out_planes, kernel_size=3, output_padding=output_padding, stride=stride, bias=False)
-        self.bn = nn.BatchNorm2d(out_planes)
-        torch.nn.init.xavier_uniform_(self.conv.weight)
+        self.conv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding)
+        torch.nn.init.kaiming_uniform_(self.conv.weight)
 
     def forward(self, x):
-        if not self.last:
-            out = F.relu(self.bn(self.conv(x)))
-        else:
-            out = self.bn(self.conv(x))
-        return out
+        return self.conv(x)
 
 
-class ContextNet(nn.Module):
-    def __init__(self):
-        super(ContextNet, self).__init__()
-        self.conv1 = Block(3, 64, stride=2)
-        self.conv2 = Block(64, 128, stride=2)
-        self.conv3 = Block(128, 256, stride=2)
+class View(nn.Module):
+    def __init__(self, size):
+        super(View, self).__init__()
+        self.size = size
 
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        x = x.view(x.size(0), -1)
-        return x
-
-
-class GlimpseNet(nn.Module):
-    def __init__(self):
-        super(GlimpseNet, self).__init__()
-        self.conv1 = Block(3, 64)
-        self.conv2 = Block(64, 128, stride=2)
-        self.conv3 = Block(128, 256, stride=2)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        x = x.view(x.size(0), -1)
-        return x
-
-
-class GlimpseDecoder(nn.Module):
-    def __init__(self, h, w):
-        super(GlimpseDecoder, self).__init__()
-        self.h = h
-        self.w = w
-
-        self.conv1 = InverseBlock(256, 128)
-        self.conv2 = InverseBlock(128, 64, stride=2, output_padding=1)
-        self.conv3 = InverseBlock(64, 3, last=True, stride=2, output_padding=1)
-
-    def forward(self, x):
-        x = x.view(x.size(0), 256, self.h, self.w)
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        return x
+    def forward(self, tensor):
+        return tensor.view(self.size)
 
 
 class CifarDraw(nn.Module):
@@ -102,29 +55,62 @@ class CifarDraw(nn.Module):
 
         self.output_stages = output_stages
 
-        self.memory = Memory(output_inverse=True, hidden_size=memory_size, memory_size=memory_size, glimpse_size=16, g_down=1024, c_down=2304, context_net=ContextNet(), glimpse_net=GlimpseNet())
+        self.context = nn.Sequential(
+            Block(3, 32, 4, 2, 1),  # B,  32, 16, 16
+            nn.ReLU(True),
+            Block(32, 32, 4, 2, 1),  # B,  32, 8, 8
+            nn.ReLU(True),
+            Block(32, 32, 4, 2, 1),  # B,  64,  4, 4
+            nn.ReLU(True),
+            View((-1, 32 * 4 * 4))
+        )
+
+        self.encoder = nn.Sequential(
+            Block(3, 32, 4, 1, 2),  # B,  32, 16, 16
+            nn.ReLU(True),
+            Block(32, 64, 4, 2, 1),  # B,  32, 8, 8
+            nn.ReLU(True),
+            Block(64, 128, 4, 2, 1),  # B,  64,  4, 4
+            nn.ReLU(True),
+            nn.Conv2d(128, 128, 4, 2, 1),  # B,  64,  2, 2
+            nn.ReLU(True),
+            View((-1, 128 * 2 * 2))
+        )
+
+        self.decoder = nn.Sequential(
+            View((-1, 128, 2, 2)),
+            InverseBlock(128, 128, 4, 2, 1),  # B,  64,  4,  4
+            nn.ReLU(True),
+            InverseBlock(128, 64, 4, 2, 1),  # B,  32, 8, 8
+            nn.ReLU(True),
+            InverseBlock(64, 32, 4, 2, 1, 1),  # B,  32, 16, 16
+            nn.ReLU(True),
+            InverseBlock(32, 3, 4, 1, 2),  # B, nc, 16, 16
+        )
+
+        self.memory = Memory(output_inverse=True, hidden_size=memory_size, memory_size=memory_size, glimpse_size=16, g_down=512, c_down=512, context_net=self.context, glimpse_net=self.encoder)
 
         self.count = count
-        self.qdown = nn.Linear(2304, memory_size)
-
-        self.decoder = GlimpseDecoder(2, 2)
 
         self.drop = nn.Dropout(0.3)
 
-        self.qdown = nn.Linear(2304, memory_size)
+        self.qdown = nn.Linear(512, memory_size)
 
-        self.mu = nn.Linear(memory_size, 16)
-        self.var = nn.Linear(memory_size, 16)
+        self.mu = nn.Linear(memory_size, 32)
+        self.var = nn.Linear(memory_size, 32)
 
-        self.sup = nn.Linear(16, 1024)
+        self.sup = nn.Linear(32, 512)
 
         if output_stages:
             self.square = visualise.red_square(16, width=1).unsqueeze(0).cuda()
 
     def sample(self, mu, logvar):
-        std = logvar.div(2).exp_()
-        eps = std.data.new(std.size()).normal_()
-        return mu + std * eps
+        if self.training:
+            std = logvar.div(2).exp_()
+            eps = std.data.new(std.size()).normal_()
+            return mu + std * eps
+        else:
+            return mu
 
     def forward(self, x, state=None):
         image = x
@@ -196,21 +182,21 @@ def draw(count, memory_size, file, device='cuda'):
 
     from visualise import StagesGrid
 
-    trial = Trial(model, optimizer, nn.MSELoss(reduction='sum'), ['loss'], pass_state=True, callbacks=[
+    trial = Trial(model, optimizer, nn.MSELoss(reduction='sum'), ['acc', 'loss'], pass_state=True, callbacks=[
         callbacks.TensorBoardImages(comment=current_time, name='Prediction', write_each_epoch=True,
-                                    key=torchbearer.Y_PRED, pad_value=1),
+                                    key=torchbearer.Y_PRED, pad_value=1, nrow=16),
         callbacks.TensorBoardImages(comment=current_time + '_cifar', name='Target', write_each_epoch=False,
-                                    key=torchbearer.Y_TRUE, pad_value=1),
+                                    key=torchbearer.Y_TRUE, pad_value=1, nrow=16),
         StagesGrid('cifar_stages.png', STAGES, 20)
-    ]).load_state_dict(torch.load(os.path.join(base_dir, file)), resume=False).with_generators(train_generator=testloader, val_generator=testloader).for_train_steps(1).for_val_steps(1).to(device)
+    ]).load_state_dict(torch.load(os.path.join(base_dir, file)), resume=False).with_generators(train_generator=testloader, val_generator=testloader).for_train_steps(1).to(device)
 
     trial.run()  # Evaluate doesn't work with tensorboard in torchbearer, seems to have been fixed in most recent version
 
 
 def run(count, memory_size, iteration, device='cuda'):
     transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
+        transforms.ColorJitter(0.25, 0.25, 0.25, 0.25),
         transforms.ToTensor()
     ])
 
@@ -228,25 +214,25 @@ def run(count, memory_size, iteration, device='cuda'):
 
     model = CifarDraw(count, memory_size)
 
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-3)
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4)
 
     from datetime import datetime
     current_time = datetime.now().strftime('%b%d_%H-%M-%S')
 
     trial = Trial(model, optimizer, nn.MSELoss(reduction='sum'), ['acc', 'loss'], pass_state=True, callbacks=[
-        tm.kl_divergence(MU, LOGVAR),
+        tm.kl_divergence(MU, LOGVAR, beta=2),
+        callbacks.MultiStepLR([50, 90]),
         callbacks.MostRecent(os.path.join(base_dir, 'iter_' + str(iteration) + '.{epoch:02d}.pt')),
         callbacks.GradientClipping(5),
-        callbacks.ExponentialLR(0.99),
         callbacks.TensorBoardImages(comment=current_time, name='Prediction', write_each_epoch=True,
                                     key=torchbearer.Y_PRED),
         callbacks.TensorBoardImages(comment=current_time + '_cifar', name='Target', write_each_epoch=False,
                                     key=torchbearer.Y_TRUE),
-    ]).with_generators(train_generator=trainloader, val_generator=testloader).to(device)
+    ]).with_generators(train_generator=trainloader, val_generator=testloader).for_val_steps(5).to(device)
 
-    trial.run(50)
+    trial.run(100)
 
 
 if __name__ == "__main__":
-    run(12, 256, 0)
-    draw(12, 256, 'iter_0.49.pt')
+    run(8, 256, 0)
+    draw(8, 256, 'iter_0.99.pt')
