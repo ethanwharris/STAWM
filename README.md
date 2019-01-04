@@ -1,6 +1,10 @@
+# Note
+
+Following the unfortunate rejection from ICLR2019, this work is currently undergoing revisions.
+
 # STAWM
 
-Code for the ICLR2019 submission 'A Biologically Inspired Visual Working Memory for Deep Networks'.
+Code for the (rejected) ICLR2019 submission ['A Biologically Inspired Visual Working Memory for Deep Networks'](https://openreview.net/forum?id=B1fbosCcYm).
 The memory module can be found in memory.py and each experiment has its own file.
 
 ## Examples
