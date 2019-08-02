@@ -109,3 +109,6 @@ logs/
 cifarss_base/
 cifar*/
 celeba*/
+
+.idea/
+mnist/

@@ -6,6 +6,49 @@ import modules as m
 
 
 class Memory(nn.Module):
+    def __init__(self, size, vectors=True, with_delta=True):
+        super(Memory, self).__init__()
+        self.vectors = vectors
+        self.with_delta = with_delta
+
+        self.W = nn.Parameter(torch.zeros(1, size, size), requires_grad=False)
+
+        self.bn = nn.BatchNorm1d(size)
+
+        if vectors:
+            self.delta = nn.Parameter(torch.randn(size), requires_grad=True)
+            self.eta = nn.Parameter(torch.randn(size), requires_grad=True)
+            self.theta = nn.Parameter(torch.randn(size), requires_grad=True)
+        else:
+            self.delta = nn.Parameter(torch.randn(1), requires_grad=True)
+            self.eta = nn.Parameter(torch.randn(1), requires_grad=True)
+            self.theta = nn.Parameter(torch.randn(1), requires_grad=True)
+
+    def init(self, x):  # Make tensors
+        self.W1 = self.W.repeat(x.size(0), 1, 1)
+
+    def forward(self, x):  # Learn
+        y = torch.matmul(self.W1, x.unsqueeze(2)).squeeze(2)
+        y = self.eta.sigmoid() * F.relu6((self.theta.sigmoid() * x) + y)
+        outer = y.unsqueeze(2) * x.unsqueeze(1)  # self.outer_product(x, p)
+
+        if self.with_delta:
+            delta = self.delta
+        else:
+            delta = self.eta
+
+        if self.vectors:
+            delta = self.delta.unsqueeze(1)
+
+        self.W1 = outer - (1 - delta.sigmoid()) * self.W1
+        return y
+
+    def query(self, x):  # Query
+        x = self.bn(torch.matmul(self.W1, x.unsqueeze(2)).squeeze(2))
+        return F.relu6(x)
+
+
+class STAWM(nn.Module):
     """The Memory module to be used in each experiment.
 
     :param dropout: Amount of dropout to use
@@ -21,15 +64,13 @@ class Memory(nn.Module):
     :param g_down: The size of the glimpse_net output
     :param c_down: The size of the context_net output
     """
-    def __init__(self, dropout=0.5, decay=0.2, learn=0.4, learn2=0.5, hidden_size=512, memory_size=256, output_inverse=False, glimpse_net=None, context_net=None, glimpse_size=22, g_down=1024, c_down=1024):
-        super(Memory, self).__init__()
+    def __init__(self, dropout=0.5, vectors=False, with_delta=False, hidden_size=512, memory_size=256, output_inverse=False, glimpse_net=None, context_net=None, glimpse_size=22, g_down=1024, c_down=1024):
+        super(STAWM, self).__init__()
         self.output_inverse = output_inverse
 
-        self.drop = nn.Dropout(dropout)
+        self.memory = Memory(memory_size, vectors=vectors, with_delta=with_delta)
 
-        self.decay = nn.Parameter(torch.ones(1) * decay, requires_grad=True)
-        self.learn = nn.Parameter(torch.ones(1) * learn, requires_grad=True)
-        self.learn2 = nn.Parameter(torch.ones(1) * learn2, requires_grad=True)
+        self.drop = nn.Dropout(dropout)
 
         self.glimpse_cnn = glimpse_net
         self.glimpse_down = nn.Linear(g_down, hidden_size)
@@ -38,6 +79,7 @@ class Memory(nn.Module):
         self.context_down = nn.Linear(c_down, hidden_size)
 
         self.emission_rnn = m.LSTM(hidden_size, hidden_size)
+        self.bn1 = nn.BatchNorm1d(hidden_size)
 
         self.locator = m.AffineLocator(glimpse_size=glimpse_size)
         self.where = nn.Linear(6, memory_size)
@@ -48,6 +90,7 @@ class Memory(nn.Module):
             self.inv_emission = m.AffineEmitter(hidden_size, dropout=dropout)
 
         self.aggregator_rnn = m.LSTM(hidden_size, hidden_size)
+        self.bn2 = nn.BatchNorm1d(hidden_size)
         self.project = nn.Linear(memory_size, hidden_size)
 
         self.c0_in = nn.Parameter(torch.zeros(1, hidden_size), requires_grad=False)
@@ -55,15 +98,9 @@ class Memory(nn.Module):
 
         self.what = nn.Linear(hidden_size, memory_size)
 
-        self.A = nn.Parameter(torch.zeros(1, memory_size, memory_size), requires_grad=False)
-        self.p = nn.Parameter(torch.zeros(1, memory_size), requires_grad=False)
-
         self.soft = nn.LogSoftmax(dim=1)
 
         self.h = nn.Parameter(torch.zeros(1, hidden_size), requires_grad=False)
-
-        self.bmv = m.BMV()
-        self.outer_product = m.OuterProduct()
 
     def forward(self, x):
         """Project through the memory without the theta term for inference
@@ -71,7 +108,7 @@ class Memory(nn.Module):
         :param x: The vector (B, N) to project
         :return: The projected output (with ReLU6)
         """
-        return F.relu6(self.bmv(self.A1, x))
+        return self.memory.query(x)
 
     def init(self, image):
         """Inititalise the memory, should be called at the beginning of a forward pass.
@@ -86,10 +123,9 @@ class Memory(nn.Module):
         self.c0 = self.c0_in.repeat(x.size(0), 1)
         self.c1 = self.c1_in.repeat(x.size(0), 1)
         self.h1 = self.h.repeat(x.size(0), 1)
-        self.A1 = self.A.repeat(x.size(0), 1, 1)
-        self.outer = self.A.repeat(x.size(0), 1, 1)
-        self.p2 = self.p.repeat(x.size(0), 1)
         self.i = 0
+
+        self.memory.init(x)
 
         return x, context
 
@@ -101,6 +137,7 @@ class Memory(nn.Module):
         :return: The output from the aggregator RNN for this glimpse and the inverse affine matrix if output_inverse is True
         """
         x, self.h0, self.c0 = self.emission_rnn(x, self.h0, self.c0)
+        # x = self.bn1(x)
         pose = self.emission(x)
 
         if self.output_inverse:
@@ -112,11 +149,10 @@ class Memory(nn.Module):
         x = self.locator(pose, image)
         x = F.relu(self.drop(self.glimpse_down(self.glimpse_cnn(x))))
         x2, self.h1, self.c1 = self.aggregator_rnn(x, self.h1, self.c1)
+        # x2 = self.bn2(x2)
         x = F.relu6(self.what(x) * where)
-        p2 = self.bmv(self.A1, x, outputs=self.p2)
-        p2 = self.learn * F.relu6((self.learn2 * x) + p2)
-        outer = self.outer_product(x, p2, outputs=self.outer)
-        self.A1 = self.A1 + outer - (self.decay * self.A1)
+
+        self.memory(x)
         self.i = self.i + 1
 
         if self.output_inverse:

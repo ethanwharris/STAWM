@@ -3,20 +3,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class BMV(nn.Module):
-    def __init__(self):
-        super(BMV, self).__init__()
+# class BMV(nn.Module):
+#     def __init__(self):
+#         super(BMV, self).__init__()
+#
+#     def forward(self, x, y, **kwargs):
+#         return torch.matmul(x, y.unsqueeze(2)).squeeze(2)
 
-    def forward(self, x, y, **kwargs):
-        return torch.matmul(x, y.unsqueeze(2)).squeeze(2)
 
-
-class OuterProduct(nn.Module):
-    def __init__(self):
-        super(OuterProduct, self).__init__()
-
-    def forward(self, x, y, **kwargs):
-        return x.unsqueeze(2) * y.unsqueeze(1)
+# class OuterProduct(nn.Module):
+#     def __init__(self):
+#         super(OuterProduct, self).__init__()
+#
+#     def forward(self, x, y, **kwargs):
+#         return x.unsqueeze(2) * y.unsqueeze(1)
 
 
 class AffineLocator(nn.Module):
