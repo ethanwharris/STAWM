@@ -105,7 +105,7 @@ class MnistClassifier(nn.Module):
         return torch.cat(classes, dim=0)
 
 
-def run(count, memory_size, glimpse_size, vectors, rep, number=6, device='cuda'):
+def run(count, memory_size, glimpse_size, vectors, rep, number=6, root='memnist', device='cuda'):
     code = '.'.join([str(count), str(glimpse_size), str(memory_size), str(rep)])
     traintransform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
     trainset = MemNIST(root='./data/mnist', number=number, train=True, download=True, transform=traintransform)
@@ -117,19 +117,19 @@ def run(count, memory_size, glimpse_size, vectors, rep, number=6, device='cuda')
     testloader = torch.utils.data.DataLoader(testset, pin_memory=True, batch_size=128,
                                              shuffle=False, num_workers=10)
 
-    base_dir = 'memnist'
+    base_dir = root
 
     model = MnistClassifier(count, memory_size, glimpse_size, vectors, number)
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=0.001)
 
-    crit = nn.NLLLoss(reduction='none')
+    # crit = nn.NLLLoss(reduction='none')
+    #
+    # def loss(state):
+    #     l = crit(state[torchbearer.PREDICTION], state[torchbearer.TARGET]).view(number, -1)
+    #     # print(l.size())
+    #     return l.sum(0).mean(0)
 
-    def loss(state):
-        l = crit(state[torchbearer.PREDICTION], state[torchbearer.TARGET]).view(number, -1)
-        # print(l.size())
-        return l.sum(0).mean(0)
-
-    trial = Trial(model, optimizer, loss, ['acc', 'loss'], callbacks=[
+    trial = Trial(model, optimizer, nn.NLLLoss(), ['acc', 'loss'], callbacks=[
         callbacks.MostRecent(os.path.join(base_dir, '{epoch:02d}.' + code + '.pt')),
         callbacks.GradientNormClipping(5),
         callbacks.MultiStepLR(milestones=[40]),
@@ -154,14 +154,15 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--glimpse_sizes", default=[16], nargs='+', type=int, help="glimpse size")
     parser.add_argument("--mem_size", default=256, type=int, help="memory size")
-    parser.add_argument("--glimpses", default=[2], nargs='+', type=int, help="number of glimpses")
+    parser.add_argument("--glimpses", default=[1], nargs='+', type=int, help="number of glimpses")
     parser.add_argument("--vectors", default=False, type=bool, help="use vector rates?")
     parser.add_argument("--reps", default=5, type=int, help="number of repeats")
-    parser.add_argument("--number", default=6, type=int, help="number of images to remember")
+    parser.add_argument("--number", default=10, type=int, help="number of images to remember")
+    parser.add_argument("--root", default='memnist', type=str, help="base directory")
 
     args = parser.parse_args()
 
     for num_glimpses in args.glimpses:
         for glimpse_size in args.glimpse_sizes:
             for i in range(args.reps):
-                run(num_glimpses, args.mem_size, glimpse_size, args.vectors, i, number=args.number)
+                run(num_glimpses, args.mem_size, glimpse_size, args.vectors, i, number=args.number, root=args.root)
