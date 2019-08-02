@@ -116,7 +116,7 @@ def run(count, memory_size, glimpse_size, vectors, rep, device='cuda'):
         # callbacks.TensorBoard(write_graph=False, comment=base_dir)
     ]).with_train_generator(trainloader).to(device)
 
-    trial.run(1, verbose=1)
+    trial.run(50, verbose=1)
 
     history = trial.with_test_generator(testloader).evaluate(data_key=torchbearer.TEST_DATA)
     acc = history['test_acc']
@@ -129,13 +129,15 @@ if __name__ == "__main__":
     from argparse import ArgumentParser
 
     parser = ArgumentParser()
-    parser.add_argument("--glimpse_size", default=16, type=int, help="glimpse size")
+    parser.add_argument("--glimpse_sizes", default=[16], nargs='+', type=int, help="glimpse size")
     parser.add_argument("--mem_size", default=256, type=int, help="memory size")
-    parser.add_argument("--glimpses", default=8, type=int, help="number of glimpses")
+    parser.add_argument("--glimpses", default=[8], nargs='+', type=int, help="number of glimpses")
     parser.add_argument("--vectors", default=False, type=bool, help="use vector rates?")
     parser.add_argument("--reps", default=5, type=int, help="number of repeats")
 
     args = parser.parse_args()
 
-    for i in range(args.reps):
-        run(args.glimpses, args.mem_size, args.glimpse_size, args.vectors, i)
+    for num_glimpses in args.glimpses:
+        for glimpse_size in args.glimpse_sizes:
+            for i in range(args.reps):
+                run(num_glimpses, args.mem_size, glimpse_size, args.vectors, i)
