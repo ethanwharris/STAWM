@@ -112,13 +112,17 @@ def run(count, memory_size, glimpse_size, vectors, rep, device='cuda'):
         callbacks.GradientNormClipping(5),
         callbacks.MultiStepLR(milestones=[40]),
         callbacks.ExponentialLR(0.99),
-        callbacks.CSVLogger(os.path.join('mnist', code + '.csv'))
+        # callbacks.CSVLogger(os.path.join('mnist', code + '.csv'))
         # callbacks.TensorBoard(write_graph=False, comment=base_dir)
     ]).with_train_generator(trainloader).to(device)
 
-    trial.run(50, verbose=1)
+    trial.run(1, verbose=1)
 
-    trial.with_test_generator(testloader).evaluate(data_key=torchbearer.TEST_DATA)
+    history = trial.with_test_generator(testloader).evaluate(data_key=torchbearer.TEST_DATA)
+    acc = history['test_acc']
+
+    with open(os.path.join(base_dir, '.'.join([str(count), str(glimpse_size), str(memory_size), 'txt'])), 'a+') as f:
+        f.write(str(acc) + '\n')
 
 
 if __name__ == "__main__":
