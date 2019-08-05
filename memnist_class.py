@@ -120,7 +120,7 @@ def run(count, memory_size, glimpse_size, vectors, rep, number=6, root='memnist'
     base_dir = root
 
     model = MnistClassifier(count, memory_size, glimpse_size, vectors, number)
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=0.0002)
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=0.0005)
 
     # crit = nn.NLLLoss(reduction='none')
     #
@@ -139,7 +139,7 @@ def run(count, memory_size, glimpse_size, vectors, rep, number=6, root='memnist'
         # callbacks.imaging.MakeGrid().on_train().to_file('test.png')
     ]).with_train_generator(trainloader).to(device)
 
-    trial.run(20, verbose=1)
+    trial.run(20, verbose=2)
 
     history = trial.with_test_generator(testloader).evaluate(data_key=torchbearer.TEST_DATA)
     acc = history['test_acc']

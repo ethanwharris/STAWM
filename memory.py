@@ -13,6 +13,7 @@ class Memory(nn.Module):
 
         self.W = nn.Parameter(torch.zeros(1, size, size), requires_grad=False)
 
+        # self.ln = nn.LayerNorm(size)
         # self.bn = nn.BatchNorm1d(size)
 
         if vectors:
@@ -79,6 +80,7 @@ class STAWM(nn.Module):
         self.context_down = nn.Linear(c_down, hidden_size)
 
         self.emission_rnn = m.LSTM(hidden_size, hidden_size)
+        self.ln1 = nn.LayerNorm(hidden_size)
         # self.bn1 = nn.BatchNorm1d(hidden_size)
 
         self.locator = m.AffineLocator(glimpse_size=glimpse_size)
@@ -91,6 +93,7 @@ class STAWM(nn.Module):
 
         self.aggregator_rnn = m.LSTM(hidden_size, hidden_size)
         # self.bn2 = nn.BatchNorm1d(hidden_size)
+        self.ln2 = nn.LayerNorm(hidden_size)
         self.project = nn.Linear(memory_size, hidden_size)
 
         self.c0_in = nn.Parameter(torch.zeros(1, hidden_size), requires_grad=False)
@@ -138,6 +141,7 @@ class STAWM(nn.Module):
         """
         x, self.h0, self.c0 = self.emission_rnn(x, self.h0, self.c0)
         # x = self.bn1(x)
+        x = self.ln1(x)
         pose = self.emission(x)
 
         if self.output_inverse:
@@ -149,6 +153,7 @@ class STAWM(nn.Module):
         x = self.locator(pose, image)
         x = F.relu(self.drop(self.glimpse_down(self.glimpse_cnn(x))))
         x2, self.h1, self.c1 = self.aggregator_rnn(x, self.h1, self.c1)
+        x2 = self.ln2(x2)
         # x2 = self.bn2(x2)
         x = F.relu6(self.what(x) * where)
 
