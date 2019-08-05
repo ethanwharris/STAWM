@@ -13,7 +13,7 @@ class Memory(nn.Module):
 
         self.W = nn.Parameter(torch.zeros(1, size, size), requires_grad=False)
 
-        self.bn = nn.BatchNorm1d(size)
+        # self.bn = nn.BatchNorm1d(size)
 
         if vectors:
             self.delta = nn.Parameter(torch.randn(size), requires_grad=True)
@@ -44,7 +44,7 @@ class Memory(nn.Module):
         return y
 
     def query(self, x):  # Query
-        x = self.bn(torch.matmul(self.W1, x.unsqueeze(2)).squeeze(2))
+        x = torch.matmul(self.W1, x.unsqueeze(2)).squeeze(2)
         return F.relu6(x)
 
 
@@ -79,7 +79,7 @@ class STAWM(nn.Module):
         self.context_down = nn.Linear(c_down, hidden_size)
 
         self.emission_rnn = m.LSTM(hidden_size, hidden_size)
-        self.bn1 = nn.BatchNorm1d(hidden_size)
+        # self.bn1 = nn.BatchNorm1d(hidden_size)
 
         self.locator = m.AffineLocator(glimpse_size=glimpse_size)
         self.where = nn.Linear(6, memory_size)
@@ -90,7 +90,7 @@ class STAWM(nn.Module):
             self.inv_emission = m.AffineEmitter(hidden_size, dropout=dropout)
 
         self.aggregator_rnn = m.LSTM(hidden_size, hidden_size)
-        self.bn2 = nn.BatchNorm1d(hidden_size)
+        # self.bn2 = nn.BatchNorm1d(hidden_size)
         self.project = nn.Linear(memory_size, hidden_size)
 
         self.c0_in = nn.Parameter(torch.zeros(1, hidden_size), requires_grad=False)
