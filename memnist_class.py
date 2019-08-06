@@ -155,8 +155,8 @@ if __name__ == "__main__":
     parser.add_argument("--glimpse_sizes", default=[28], nargs='+', type=int, help="glimpse size")
     parser.add_argument("--mem_size", default=[256], nargs='+', type=int, help="memory size")
     parser.add_argument("--glimpses", default=[1], nargs='+', type=int, help="number of glimpses")
-    parser.add_argument("--vectors", default=True, type=bool, help="use vector rates?")
-    parser.add_argument("--reps", default=1, type=int, help="number of repeats")
+    parser.add_argument("--vectors", default=False, type=bool, help="use vector rates?")
+    parser.add_argument("--reps", default=5, type=int, help="number of repeats")
     parser.add_argument("--number", default=10, type=int, help="number of images to remember")
     parser.add_argument("--root", default='memnist', type=str, help="base directory")
 
