@@ -139,7 +139,7 @@ def run(count, memory_size, glimpse_size, vectors, rep, number=6, root='memnist'
         # callbacks.imaging.MakeGrid().on_train().to_file('test.png')
     ]).with_train_generator(trainloader).to(device)
 
-    trial.run(20, verbose=2)
+    trial.run(50, verbose=2)
 
     history = trial.with_test_generator(testloader).evaluate(data_key=torchbearer.TEST_DATA)
     acc = history['test_acc']
@@ -152,11 +152,11 @@ if __name__ == "__main__":
     from argparse import ArgumentParser
 
     parser = ArgumentParser()
-    parser.add_argument("--glimpse_sizes", default=[16], nargs='+', type=int, help="glimpse size")
+    parser.add_argument("--glimpse_sizes", default=[28], nargs='+', type=int, help="glimpse size")
     parser.add_argument("--mem_size", default=256, type=int, help="memory size")
     parser.add_argument("--glimpses", default=[1], nargs='+', type=int, help="number of glimpses")
-    parser.add_argument("--vectors", default=False, type=bool, help="use vector rates?")
-    parser.add_argument("--reps", default=5, type=int, help="number of repeats")
+    parser.add_argument("--vectors", default=True, type=bool, help="use vector rates?")
+    parser.add_argument("--reps", default=1, type=int, help="number of repeats")
     parser.add_argument("--number", default=10, type=int, help="number of images to remember")
     parser.add_argument("--root", default='memnist', type=str, help="base directory")
 

@@ -13,7 +13,7 @@ class Memory(nn.Module):
 
         self.W = nn.Parameter(torch.zeros(1, size, size), requires_grad=False)
 
-        # self.ln = nn.LayerNorm(size)
+        self.ln = nn.LayerNorm(size)
         # self.bn = nn.BatchNorm1d(size)
 
         if vectors:
@@ -45,7 +45,7 @@ class Memory(nn.Module):
         return y
 
     def query(self, x):  # Query
-        x = torch.matmul(self.W1, x.unsqueeze(2)).squeeze(2)
+        x = self.ln(torch.matmul(self.W1, x.unsqueeze(2)).squeeze(2))
         return F.relu6(x)
 
 
@@ -141,7 +141,7 @@ class STAWM(nn.Module):
         """
         x, self.h0, self.c0 = self.emission_rnn(x, self.h0, self.c0)
         # x = self.bn1(x)
-        x = self.ln1(x)
+        # x = self.ln1(x)
         pose = self.emission(x)
 
         if self.output_inverse:
@@ -153,7 +153,7 @@ class STAWM(nn.Module):
         x = self.locator(pose, image)
         x = F.relu(self.drop(self.glimpse_down(self.glimpse_cnn(x))))
         x2, self.h1, self.c1 = self.aggregator_rnn(x, self.h1, self.c1)
-        x2 = self.ln2(x2)
+        # x2 = self.ln2(x2)
         # x2 = self.bn2(x2)
         x = F.relu6(self.what(x) * where)
 
