@@ -153,7 +153,7 @@ if __name__ == "__main__":
 
     parser = ArgumentParser()
     parser.add_argument("--glimpse_sizes", default=[28], nargs='+', type=int, help="glimpse size")
-    parser.add_argument("--mem_size", default=256, type=int, help="memory size")
+    parser.add_argument("--mem_size", default=[256], nargs='+', type=int, help="memory size")
     parser.add_argument("--glimpses", default=[1], nargs='+', type=int, help="number of glimpses")
     parser.add_argument("--vectors", default=True, type=bool, help="use vector rates?")
     parser.add_argument("--reps", default=1, type=int, help="number of repeats")
@@ -162,7 +162,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    for num_glimpses in args.glimpses:
-        for glimpse_size in args.glimpse_sizes:
-            for i in range(args.reps):
-                run(num_glimpses, args.mem_size, glimpse_size, args.vectors, i, number=args.number, root=args.root)
+    for mem_size in args.mem_size:
+        for num_glimpses in args.glimpses:
+            for glimpse_size in args.glimpse_sizes:
+                for i in range(args.reps):
+                    run(num_glimpses, mem_size, glimpse_size, args.vectors, i, number=args.number, root=args.root)
